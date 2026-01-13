@@ -9,7 +9,7 @@ from io import StringIO
 st.set_page_config(page_title="Kalkulačka Děti", layout="centered")
 
 st.title("👨‍👩‍👦‍👦 Kalkulačka péče o děti")
-st.write("Nahraj ICS soubor a aplikace spočítá dny s váženým koeficientem.")
+st.write("Nahraj ICS soubor a aplikace spočítá dny s váženým koeficientem. Dny péče jsou identifikovány podle klíčových slov *P. má děti* a *V. má děti*")
 
 # --- SIDEBAR (NASTAVENÍ) ---
 with st.sidebar:
@@ -193,7 +193,7 @@ if uploaded_file is not None:
         column_config={
             "Měsíc": st.column_config.TextColumn("Měsíc", width="medium"),
             "P. (vážené dny)": st.column_config.NumberColumn("Petr (váženo)", format="%.2f"),
-            "V. (vážené dny)": st.column_config.NumberColumn("Verča (váženo)", format="%.2f"),
+            "V. (vážené dny)": st.column_config.NumberColumn("Veronika (váženo)", format="%.2f"),
         }
     )
 
@@ -201,3 +201,4 @@ if uploaded_file is not None:
     col1, col2 = st.columns(2)
     col1.metric("Celkem P.", f"{total_p:.2f}")
     col2.metric("Celkem V.", f"{total_v:.2f}")
+
