@@ -1,0 +1,155 @@
+import streamlit as st
+import arrow
+import re
+import unicodedata
+from ics import Calendar
+from io import StringIO
+
+# --- KONFIGURACE ---
+st.set_page_config(page_title="Kalkulačka Děti", layout="centered")
+
+st.title("👨‍👩‍👦‍👦 Kalkulačka péče o děti")
+st.write("Nahraj ICS soubor a aplikace spočítá dny s váženým koeficientem.")
+
+# --- SIDEBAR (NASTAVENÍ) ---
+with st.sidebar:
+    st.header("Nastavení")
+    weight_weekend = st.number_input("Koeficient Víkend", value=1.5, step=0.1)
+    weight_weekday = st.number_input("Koeficient Všední den", value=1.0, step=0.1)
+    
+    # Výběr roku
+    year_select = st.number_input("Rok", value=2026, step=1)
+    
+    # Výběr měsíců
+    all_months = {
+        "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
+        "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
+        "Září": 9, "Říjen": 10, "Listopad": 11, "Prosinec": 12
+    }
+    selected_month_names = st.multiselect(
+        "Vyber měsíce", 
+        options=list(all_months.keys()),
+        default=["Leden", "Únor", "Březen", "Duben"]
+    )
+    
+    # Seřadit vybrané měsíce podle kalendáře
+    months_config = []
+    for name in all_months:
+        if name in selected_month_names:
+            months_config.append((name, all_months[name]))
+
+# --- POMOCNÉ FUNKCE ---
+def normalize_text(text):
+    if not text: return ""
+    normalized = unicodedata.normalize('NFD', text)
+    result = "".join([c for c in normalized if unicodedata.category(c) != 'Mn'])
+    return result.lower()
+
+def get_weighted_days(start, end):
+    total_weighted_days = 0.0
+    current = start
+    while current < end:
+        next_midnight = current.shift(days=1).floor('day')
+        segment_end = min(end, next_midnight)
+        duration = (segment_end - current).total_seconds() / 86400.0
+        
+        if current.weekday() >= 5: # 5=So, 6=Ne
+            total_weighted_days += duration * weight_weekend
+        else:
+            total_weighted_days += duration * weight_weekday
+        current = segment_end
+    return total_weighted_days
+
+# --- HLAVNÍ LOGIKA ---
+uploaded_file = st.file_uploader("Vyber soubor .ics", type="ics")
+
+if uploaded_file is not None:
+    # Streamlit vrací bytes, musíme dekódovat
+    stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+    c = Calendar(stringio.read())
+    
+    pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
+    pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
+
+    events_p_all = []
+    events_v_all = []
+
+    # Filtrace
+    for event in c.events:
+        clean = normalize_text(event.name)
+        if pattern_p.search(clean):
+            events_p_all.append(event)
+        elif pattern_v.search(clean):
+            events_v_all.append(event)
+
+    # Výpočet
+    results = []
+    total_p = 0.0
+    total_v = 0.0
+
+    for m_name, m_month in months_config:
+        m_start = arrow.get(year_select, m_month, 1)
+        m_end = m_start.shift(months=1)
+
+        def get_clipped_intervals(events, bounds_start, bounds_end):
+            intervals = []
+            for e in events:
+                s = max(e.begin, bounds_start)
+                e_end = min(e.end, bounds_end)
+                if s < e_end:
+                    intervals.append((s, e_end))
+            return intervals
+
+        p_intervals = get_clipped_intervals(events_p_all, m_start, m_end)
+        v_intervals = get_clipped_intervals(events_v_all, m_start, m_end)
+
+        points = set([m_start, m_end])
+        for s, e in p_intervals + v_intervals:
+            points.add(s); points.add(e)
+        sorted_points = sorted(list(points))
+
+        p_w_days = 0.0
+        v_w_days = 0.0
+
+        def is_active(t, intervals):
+            for s, e in intervals:
+                if s <= t < e: return True
+            return False
+
+        for i in range(len(sorted_points) - 1):
+            t1 = sorted_points[i]
+            t2 = sorted_points[i+1]
+            segment_w_days = get_weighted_days(t1, t2)
+            
+            if segment_w_days <= 0: continue
+            
+            midpoint = t1 + (t2 - t1) / 2
+            p_active = is_active(midpoint, p_intervals)
+            v_active = is_active(midpoint, v_intervals)
+
+            if p_active and v_active:
+                p_w_days += segment_w_days * 0.5
+                v_w_days += segment_w_days * 0.5
+            elif p_active:
+                p_w_days += segment_w_days
+            elif v_active:
+                v_w_days += segment_w_days
+        
+        total_p += p_w_days
+        total_v += v_w_days
+        results.append({"Měsíc": m_name, "P. (v.dny)": round(p_w_days, 2), "V. (v.dny)": round(v_w_days, 2)})
+
+    # --- ZOBRAZENÍ VÝSLEDKŮ ---
+    st.divider()
+    st.subheader("Výsledná tabulka")
+    
+    # Přidání řádku Celkem
+    results.append({"Měsíc": "CELKEM", "P. (v.dny)": round(total_p, 2), "V. (v.dny)": round(total_v, 2)})
+    
+    # Vykreslení interaktivní tabulky
+    st.dataframe(results, use_container_width=True)
+
+    # Textový log pro kontrolu (volitelné)
+    with st.expander("Zobrazit detaily"):
+        st.write(f"Celkem P: {total_p:.2f}")
+        st.write(f"Celkem V: {total_v:.2f}")
