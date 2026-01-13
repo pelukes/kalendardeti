@@ -17,6 +17,7 @@ try:
 except:
     # Zde je fallback, ale POZOR: Pokud toto dáš na GitHub, uvidí to všichni.
     # Doporučuji nechat prázdné nebo použít secrets.
+    CALENDAR_URL = "https://calendar.google.com/calendar/ical/3af74a5261b1b56a1c98aa9fdee6e74b85892c4333b3b5a13e530d041faf8104%40group.calendar.google.com/private-bd9045ec49ad00e28b1bbd66a26748ef/basic.ics"
 
 # --- SIDEBAR ---
 with st.sidebar:
