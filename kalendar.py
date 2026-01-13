@@ -201,8 +201,8 @@ for idx, (m_name, m_month) in enumerate(months_config):
     
     results.append({
         "Měsíc": m_name, 
-        "P. (vážené dny)": round(p_w_days, 2), 
-        "V. (vážené dny)": round(v_w_days, 2)
+        "P.": round(p_w_days, 2), 
+        "V.": round(v_w_days, 2)
     })
     
     if total_steps > 0:
@@ -226,11 +226,12 @@ st.dataframe(
     use_container_width=True,
     column_config={
         "Měsíc": st.column_config.TextColumn("Měsíc", width="medium"),
-        "P. (vážené dny)": st.column_config.NumberColumn("Petr (váženo)", format="%.2f"),
-        "V. (vážené dny)": st.column_config.NumberColumn("Verča (váženo)", format="%.2f"),
+        "P. (vážené dny)": st.column_config.NumberColumn("Petr", format="%.2f"),
+        "V. (vážené dny)": st.column_config.NumberColumn("Veronika", format="%.2f"),
     }
 )
 
 col1, col2 = st.columns(2)
 col1.metric("Celkem P.", f"{total_p:.2f}")
 col2.metric("Celkem V.", f"{total_v:.2f}")
+
