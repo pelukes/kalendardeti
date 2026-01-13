@@ -5,43 +5,54 @@ import unicodedata
 import requests
 from ics import Calendar
 
-# --- KONFIGURACE ---
+# --- KONFIGURACE STRÁNKY ---
 st.set_page_config(page_title="Kalkulačka Děti (Online)", layout="centered")
 
 st.title("👨‍👩‍👦‍👦 Kalkulačka péče o děti")
 
 # --- NAČTENÍ URL Z TAJNÝCH PROMĚNNÝCH (SECRETS) ---
-# Pokud není URL v secrets, použijeme tu tvou natvrdo (jen pro testování, nedávat na veřejný GitHub!)
+# Aplikace se pokusí najít URL v st.secrets. 
+# Pokud tam není (např. při lokálním testování bez secrets.toml), vypíše chybu.
 try:
     CALENDAR_URL = st.secrets["CALENDAR_URL"]
-except:
-    # Zde je fallback, ale POZOR: Pokud toto dáš na GitHub, uvidí to všichni.
-    # Doporučuji nechat prázdné nebo použít secrets.
-    CALENDAR_URL = "https://calendar.google.com/calendar/ical/3af74a5261b1b56a1c98aa9fdee6e74b85892c4333b3b5a13e530d041faf8104%40group.calendar.google.com/private-bd9045ec49ad00e28b1bbd66a26748ef/basic.ics"
+except FileNotFoundError:
+    st.error("Chybí soubor secrets.toml nebo nastavení Secrets na Streamlit Cloudu.")
+    st.info("Přidejte do Secrets klíč: CALENDAR_URL = 'vaše_dlouhá_adresa'")
+    st.stop()
+except KeyError:
+    st.error("V Secrets nebyl nalezen klíč 'CALENDAR_URL'.")
+    st.stop()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (NASTAVENÍ) ---
 with st.sidebar:
     st.header("Nastavení")
-    # Tlačítko pro vynucení aktualizace (kdyby cache držela stará data)
+    
+    # Tlačítko pro vynucení aktualizace (vymaže cache)
     if st.button("🔄 Obnovit data z kalendáře"):
         st.cache_data.clear()
 
     st.divider()
     
+    # Koeficienty
     col1, col2 = st.columns(2)
     with col1:
         weight_weekend = st.number_input("Koef. Víkend", value=1.5, step=0.1)
     with col2:
         weight_weekday = st.number_input("Koef. Všední", value=1.0, step=0.1)
     
+    # Výběr roku
     year_select = st.number_input("Rok", value=2026, step=1)
     
     st.divider()
+    
+    # Definice měsíců
     all_months = {
         "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
         "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
         "Září": 9, "Říjen": 10, "Listopad": 11, "Prosinec": 12
     }
+    
+    # Výběr měsíců - Defaultně všechny
     st.write("Vybrané měsíce:")
     selected_month_names = st.multiselect(
         "Měsíce", 
@@ -49,34 +60,44 @@ with st.sidebar:
         default=list(all_months.keys()),
         label_visibility="collapsed"
     )
+    
     months_config = []
     for name in all_months:
         if name in selected_month_names:
             months_config.append((name, all_months[name]))
 
-# --- FUNKCE ---
+# --- POMOCNÉ FUNKCE ---
+
 def normalize_text(text):
+    """Odstraní diakritiku a převede na malá písmena."""
     if not text: return ""
     normalized = unicodedata.normalize('NFD', text)
     result = "".join([c for c in normalized if unicodedata.category(c) != 'Mn'])
     return result.lower()
 
-@st.cache_data(ttl=900) # Cache na 15 minut
-def load_calendar_from_url(url):
+@st.cache_data(ttl=900)  # Cache platná 15 minut
+def get_calendar_text(url):
+    """
+    Stáhne obsah kalendáře jako text.
+    Vrací pouze string (text), který Streamlit umí snadno cachovat.
+    """
     try:
         response = requests.get(url)
-        response.raise_for_status() # Vyhodí chybu, pokud je status != 200
-        return Calendar(response.text)
+        response.raise_for_status()
+        return response.text
     except Exception as e:
         return None
 
 def get_weighted_days(start, end):
+    """Vypočítá vážené dny (víkend vs všední den)."""
     total_weighted_days = 0.0
     current = start
     while current < end:
         next_midnight = current.shift(days=1).floor('day')
         segment_end = min(end, next_midnight)
         duration = (segment_end - current).total_seconds() / 86400.0
+        
+        # 5=Sobota, 6=Neděle
         if current.weekday() >= 5: 
             total_weighted_days += duration * weight_weekend
         else:
@@ -86,17 +107,23 @@ def get_weighted_days(start, end):
 
 # --- HLAVNÍ LOGIKA ---
 
-# 1. Stažení kalendáře
+# 1. Stažení textu kalendáře (s využitím cache)
 with st.spinner('Stahuji aktuální kalendář z Google...'):
-    c = load_calendar_from_url(CALENDAR_URL)
+    ics_text = get_calendar_text(CALENDAR_URL)
 
-if c is None:
-    st.error("Nepodařilo se stáhnout kalendář. Zkontrolujte URL adresu.")
+if ics_text is None:
+    st.error("Nepodařilo se stáhnout kalendář. Zkontrolujte URL adresu v Secrets.")
     st.stop()
-else:
-    st.success("Kalendář úspěšně načten!")
 
-# 2. Zbytek logiky (stejný jako dříve)
+# 2. Vytvoření objektu Calendar (rychlá operace, není třeba cachovat)
+try:
+    c = Calendar(ics_text)
+    st.success("Kalendář úspěšně načten!")
+except Exception as e:
+    st.error(f"Chyba při parsování kalendáře: {e}")
+    st.stop()
+
+# 3. Filtrace událostí
 pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
 pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
 
@@ -110,6 +137,7 @@ for event in c.events:
     elif pattern_v.search(clean):
         events_v_all.append(event)
 
+# 4. Výpočet statistik
 results = []
 total_p = 0.0
 total_v = 0.0
@@ -121,6 +149,7 @@ for idx, (m_name, m_month) in enumerate(months_config):
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
+    # Funkce pro ořezání intervalů
     def get_clipped_intervals(events, bounds_start, bounds_end):
         intervals = []
         for e in events:
@@ -133,6 +162,7 @@ for idx, (m_name, m_month) in enumerate(months_config):
     p_intervals = get_clipped_intervals(events_p_all, m_start, m_end)
     v_intervals = get_clipped_intervals(events_v_all, m_start, m_end)
 
+    # Body zlomu
     points = set([m_start, m_end])
     for s, e in p_intervals + v_intervals:
         points.add(s); points.add(e)
@@ -146,11 +176,14 @@ for idx, (m_name, m_month) in enumerate(months_config):
             if s <= t < e: return True
         return False
 
+    # Průchod segmenty
     for i in range(len(sorted_points) - 1):
         t1 = sorted_points[i]
         t2 = sorted_points[i+1]
+        
         segment_w_days = get_weighted_days(t1, t2)
         if segment_w_days <= 0: continue
+        
         midpoint = t1 + (t2 - t1) / 2
         p_active = is_active(midpoint, p_intervals)
         v_active = is_active(midpoint, v_intervals)
@@ -165,18 +198,23 @@ for idx, (m_name, m_month) in enumerate(months_config):
     
     total_p += p_w_days
     total_v += v_w_days
+    
     results.append({
         "Měsíc": m_name, 
         "P. (vážené dny)": round(p_w_days, 2), 
         "V. (vážené dny)": round(v_w_days, 2)
     })
+    
     if total_steps > 0:
         progress_bar.progress((idx + 1) / total_steps)
 
 progress_bar.empty()
 
+# --- ZOBRAZENÍ VÝSLEDKŮ ---
 st.divider()
 st.subheader(f"Výsledky pro rok {year_select}")
+
+# Přidání součtového řádku
 results.append({
     "Měsíc": "CELKEM", 
     "P. (vážené dny)": round(total_p, 2), 
