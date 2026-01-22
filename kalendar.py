@@ -197,5 +197,6 @@ col_p, col_v = st.columns(2)
 col_p.metric("Celkem Petr", f"{total_p:.2f}")
 col_v.metric("Celkem Veronika", f"{total_v:.2f}")
 
-st.info("💡 Tip: Pokud jsou oba rodiče v kalendáři ve stejný den, váha dne se dělí 50/50.")
+st.info("💡 Pokud jsou oba rodiče v kalendáři ve stejný den, váha dne se dělí 50/50.")
+
 
