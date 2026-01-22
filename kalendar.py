@@ -14,8 +14,7 @@ st.title("👨‍👩‍👦‍👦 Kalkulačka péče o děti")
 try:
     CALENDAR_URL = st.secrets["CALENDAR_URL"]
 except Exception:
-    # Fallback pro lokální testování, pokud nemáš nastavené secrets
-    st.error("Nenalezen klíč CALENDAR_URL v Secrets.")
+    st.error("Nenalezen klíč CALENDAR_URL v Secrets. Prosím nastavte jej v administraci Streamlit Cloud.")
     st.stop()
 
 # --- SIDEBAR (NASTAVENÍ) ---
@@ -38,16 +37,13 @@ with st.sidebar:
     
     st.divider()
     
-    # --- LEPŠÍ VÝBĚR MĚSÍCŮ ---
     st.write("**Výběr měsíců:**")
-    
     all_months = {
         "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
         "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
         "Září": 9, "Říjen": 10, "Listopad": 11, "Prosinec": 12
     }
 
-    # Tlačítka pro hromadnou akci
     c_all, c_none = st.columns(2)
     if c_all.button("Vybrat vše"):
         for m in all_months.keys():
@@ -56,19 +52,16 @@ with st.sidebar:
         for m in all_months.keys():
             st.session_state[f"cb_{m}"] = False
 
-    # Mřížka checkboxů 3x4
     selected_month_names = []
     cols = st.columns(3)
     for i, month_name in enumerate(all_months.keys()):
         with cols[i % 3]:
-            # Inicializace stavu checkboxu, pokud neexistuje (defaultně True)
             if f"cb_{month_name}" not in st.session_state:
                 st.session_state[f"cb_{month_name}"] = True
             
             if st.checkbox(month_name, key=f"cb_{month_name}"):
                 selected_month_names.append(month_name)
 
-    # Příprava konfigurace vybraných měsíců
     months_config = []
     for name, num in all_months.items():
         if name in selected_month_names:
@@ -91,20 +84,6 @@ def get_calendar_text(url):
     except Exception:
         return None
 
-def get_weighted_days(start, end):
-    total_weighted_days = 0.0
-    current = start
-    while current < end:
-        next_midnight = current.shift(days=1).floor('day')
-        segment_end = min(end, next_midnight)
-        duration = (segment_end - current).total_seconds() / 86400.0
-        if current.weekday() >= 5: 
-            total_weighted_days += duration * weight_weekend
-        else:
-            total_weighted_days += duration * weight_weekday
-        current = segment_end
-    return total_weighted_days
-
 # --- HLAVNÍ LOGIKA ---
 
 if not months_config:
@@ -124,7 +103,7 @@ except Exception as e:
     st.error(f"Chyba při parsování kalendáře: {e}")
     st.stop()
 
-# Filtrace událostí (P vs V)
+# Filtrace událostí (P vs V) pomocí regulárních výrazů
 pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
 pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
 
@@ -138,7 +117,7 @@ for event in c.events:
     elif pattern_v.search(clean):
         events_v_all.append(event)
 
-# Výpočet po měsících
+# Výpočet po měsících a dnech
 results = []
 total_p = 0.0
 total_v = 0.0
@@ -150,48 +129,44 @@ for idx, (m_name, m_month) in enumerate(months_config):
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
-    def get_clipped_intervals(events, bounds_start, bounds_end):
-        intervals = []
-        for e in events:
-            s = max(e.begin, bounds_start)
-            e_end = min(e.end, bounds_end)
-            if s < e_end:
-                intervals.append((s, e_end))
-        return intervals
-
-    p_intervals = get_clipped_intervals(events_p_all, m_start, m_end)
-    v_intervals = get_clipped_intervals(events_v_all, m_start, m_end)
-
-    points = set([m_start, m_end])
-    for s, e in p_intervals + v_intervals:
-        points.add(s); points.add(e)
-    sorted_points = sorted(list(points))
-
     p_w_days = 0.0
     v_w_days = 0.0
 
-    def is_active(t, intervals):
-        for s, e in intervals:
-            if s <= t < e: return True
-        return False
-
-    for i in range(len(sorted_points) - 1):
-        t1 = sorted_points[i]
-        t2 = sorted_points[i+1]
-        segment_w_days = get_weighted_days(t1, t2)
-        if segment_w_days <= 0: continue
-        midpoint = t1 + (t2 - t1) / 2
-        p_active = is_active(midpoint, p_intervals)
-        v_active = is_active(midpoint, v_intervals)
-
+    # Iterace den po dni v rámci měsíce
+    current_day = m_start
+    while current_day < m_end:
+        day_start = current_day.floor('day')
+        day_end = current_day.ceil('day')
+        
+        is_weekend = current_day.weekday() >= 5
+        day_weight = weight_weekend if is_weekend else weight_weekday
+        
+        p_active = False
+        v_active = False
+        
+        # Kontrola, zda Petrův záznam zasahuje do tohoto dne
+        for e in events_p_all:
+            if e.begin < day_end and e.end > day_start:
+                p_active = True
+                break
+        
+        # Kontrola, zda Veroničin záznam zasahuje do tohoto dne
+        for e in events_v_all:
+            if e.begin < day_end and e.end > day_start:
+                v_active = True
+                break
+        
+        # Logika rozdělení váhy
         if p_active and v_active:
-            p_w_days += segment_w_days * 0.5
-            v_w_days += segment_w_days * 0.5
+            p_w_days += day_weight * 0.5
+            v_w_days += day_weight * 0.5
         elif p_active:
-            p_w_days += segment_w_days
+            p_w_days += day_weight
         elif v_active:
-            v_w_days += segment_w_days
-    
+            v_w_days += day_weight
+            
+        current_day = current_day.shift(days=1)
+
     total_p += p_w_days
     total_v += v_w_days
     results.append({
@@ -221,3 +196,5 @@ st.dataframe(
 col_p, col_v = st.columns(2)
 col_p.metric("Celkem Petr", f"{total_p:.2f}")
 col_v.metric("Celkem Veronika", f"{total_v:.2f}")
+
+st.info("💡 Tip: Pokud jsou oba rodiče v kalendáři ve stejný den, váha dne se dělí 50/50.")
