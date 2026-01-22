@@ -6,9 +6,9 @@ import requests
 from ics import Calendar
 
 # --- KONFIGURACE STRÁNKY ---
-st.set_page_config(page_title="Kalkulačka Děti (Online)", layout="centered")
+st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="centered")
 
-st.title("👨‍👩‍👦‍👦 Kalkulačka péče o děti")
+st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
 
 # --- NAČTENÍ URL Z TAJNÝCH PROMĚNNÝCH (SECRETS) ---
 try:
@@ -198,3 +198,4 @@ col_p.metric("Celkem Petr", f"{total_p:.2f}")
 col_v.metric("Celkem Veronika", f"{total_v:.2f}")
 
 st.info("💡 Tip: Pokud jsou oba rodiče v kalendáři ve stejný den, váha dne se dělí 50/50.")
+
