@@ -6,7 +6,7 @@ import requests
 from ics import Calendar
 
 # --- KONFIGURACE STRÁNKY ---
-st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="centered")
+st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide")
 
 st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
 
@@ -119,17 +119,22 @@ for event in c.events:
 
 # Výpočet po měsících a dnech
 results = []
-total_p = 0.0
-total_v = 0.0
+total_p_weight = 0.0
+total_v_weight = 0.0
+total_p_weekends = 0.0
+total_v_weekends = 0.0
+
+progress_bar = st.progress(0)
+total_steps = len(months_config)
 
 for idx, (m_name, m_month) in enumerate(months_config):
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
-    p_w_days = 0.0
-    v_w_days = 0.0
-    p_weekend_count = 0.0  # Nový čítač pro víkendy
-    v_weekend_count = 0.0  # Nový čítač pro víkendy
+    p_w_sum = 0.0
+    v_w_sum = 0.0
+    p_we_count = 0.0
+    v_we_count = 0.0
 
     current_day = m_start
     while current_day < m_end:
@@ -152,57 +157,60 @@ for idx, (m_name, m_month) in enumerate(months_config):
                 v_active = True
                 break
         
-        # Logika rozdělení
+        # Logika rozdělení váhy a víkendů
         if p_active and v_active:
-            p_w_days += day_weight * 0.5
-            v_w_days += day_weight * 0.5
+            p_w_sum += day_weight * 0.5
+            v_w_sum += day_weight * 0.5
             if is_weekend:
-                p_weekend_count += 0.5
-                v_weekend_count += 0.5
+                p_we_count += 0.5
+                v_we_count += 0.5
         elif p_active:
-            p_w_days += day_weight
+            p_w_sum += day_weight
             if is_weekend:
-                p_weekend_count += 1.0
+                p_we_count += 1.0
         elif v_active:
-            v_w_days += day_weight
+            v_w_sum += day_weight
             if is_weekend:
-                v_weekend_count += 1.0
+                v_we_count += 1.0
             
         current_day = current_day.shift(days=1)
 
-    total_p += p_w_days
-    total_v += v_w_days
+    total_p_weight += p_w_sum
+    total_v_weight += v_w_sum
+    total_p_weekends += p_we_count
+    total_v_weekends += v_we_count
+
     results.append({
         "Měsíc": m_name, 
-        "Petr (body)": round(p_w_days, 2), 
-        "Veronika (body)": round(v_w_days, 2),
-        "Petr (víkendy)": round(p_weekend_count, 1),
-        "Veronika (víkendy)": round(v_weekend_count, 1)
+        "Petr (body)": round(p_w_sum, 2), 
+        "Veronika (body)": round(v_w_sum, 2),
+        "Petr (víkendy)": round(p_we_count, 1),
+        "Veronika (víkendy)": round(v_we_count, 1)
     })
     progress_bar.progress((idx + 1) / total_steps)
 
 progress_bar.empty()
 
-# --- VÝSTUP (UPRAVENÝ) ---
+# --- VÝSTUP ---
 st.divider()
 st.subheader(f"Výsledky pro rok {year_select}")
 
+# Tabulka s výsledky
 st.dataframe(
     results, 
     use_container_width=True,
     column_config={
-        "Petr (body)": st.column_config.NumberColumn(format="%.2f"),
-        "Veronika (body)": st.column_config.NumberColumn(format="%.2f"),
-        "Petr (víkendy)": st.column_config.NumberColumn(format="%.1f d"),
-        "Veronika (víkendy)": st.column_config.NumberColumn(format="%.1f d"),
-    })
+        "Petr": st.column_config.NumberColumn("Petr", format="%.2f"),
+        "Veronika": st.column_config.NumberColumn("Veronika", format="%.2f"),
+        "Petr (víkendy)": st.column_config.NumberColumn("Petr (víkendy)", format="%.1f d"),
+        "Veronika (víkendy)": st.column_config.NumberColumn("Veronika (víkendy)", format="%.1f d"),
+    }
+)
 
 # Celkové metriky
-col_p, col_v = st.columns(2)
-col_p.metric("Celkem Petr", f"{total_p:.2f}")
-col_v.metric("Celkem Veronika", f"{total_v:.2f}")
-
-st.info("💡 Pokud jsou oba rodiče v kalendáři ve stejný den, váha dne se dělí 50/50.")
-
-
-
+st.markdown("### Celkové souhrny")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Petr", f"{total_p_weight:.2f}")
+col2.metric("Veronika", f"{total_v_weight:.2f}")
+col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
+col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
