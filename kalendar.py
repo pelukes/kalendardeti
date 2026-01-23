@@ -10,6 +10,10 @@ st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide")
 
 st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
 
+# --- NASTAVENÍ KOEFICIENTŮ (NAPEVNO) ---
+WEIGHT_WEEKEND = 1.5
+WEIGHT_WEEKDAY = 1.0
+
 # --- NAČTENÍ URL Z TAJNÝCH PROMĚNNÝCH (SECRETS) ---
 try:
     CALENDAR_URL = st.secrets["CALENDAR_URL"]
@@ -25,13 +29,6 @@ with st.sidebar:
         st.cache_data.clear()
 
     st.divider()
-    
-    # Koeficienty
-    col1, col2 = st.columns(2)
-    with col1:
-        weight_weekend = st.number_input("Koef. Víkend", value=1.5, step=0.1)
-    with col2:
-        weight_weekday = st.number_input("Koef. Všední", value=1.0, step=0.1)
     
     year_select = st.number_input("Rok", value=2026, step=1)
     
@@ -142,7 +139,8 @@ for idx, (m_name, m_month) in enumerate(months_config):
         day_end = current_day.ceil('day')
         
         is_weekend = current_day.weekday() >= 5
-        day_weight = weight_weekend if is_weekend else weight_weekday
+        # Použití pevných konstant
+        day_weight = WEIGHT_WEEKEND if is_weekend else WEIGHT_WEEKDAY
         
         p_active = False
         v_active = False
@@ -214,5 +212,3 @@ col1.metric("Petr", f"{total_p_weight:.2f}")
 col2.metric("Veronika", f"{total_v_weight:.2f}")
 col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
 col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
-
-
