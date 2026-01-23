@@ -182,8 +182,8 @@ for idx, (m_name, m_month) in enumerate(months_config):
 
     results.append({
         "Měsíc": m_name, 
-        "Petr (body)": round(p_w_sum, 2), 
-        "Veronika (body)": round(v_w_sum, 2),
+        "Petr": round(p_w_sum, 2), 
+        "Veronika": round(v_w_sum, 2),
         "Petr (víkendy)": round(p_we_count, 1),
         "Veronika (víkendy)": round(v_we_count, 1)
     })
@@ -214,3 +214,4 @@ col1.metric("Petr", f"{total_p_weight:.2f}")
 col2.metric("Veronika", f"{total_v_weight:.2f}")
 col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
 col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
+
