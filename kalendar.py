@@ -193,7 +193,7 @@ progress_bar.empty()
 
 # --- VÝSTUP ---
 st.divider()
-st.subheader(f"Výsledky pro rok {year_select}")
+st.subheader(f"Přehled pro rok {year_select}")
 
 # Tabulka s výsledky
 st.dataframe(
@@ -214,4 +214,5 @@ col1.metric("Petr", f"{total_p_weight:.2f}")
 col2.metric("Veronika", f"{total_v_weight:.2f}")
 col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
 col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
+
 
