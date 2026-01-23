@@ -122,17 +122,15 @@ results = []
 total_p = 0.0
 total_v = 0.0
 
-progress_bar = st.progress(0)
-total_steps = len(months_config)
-
 for idx, (m_name, m_month) in enumerate(months_config):
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
     p_w_days = 0.0
     v_w_days = 0.0
+    p_weekend_count = 0.0  # Nový čítač pro víkendy
+    v_weekend_count = 0.0  # Nový čítač pro víkendy
 
-    # Iterace den po dni v rámci měsíce
     current_day = m_start
     while current_day < m_end:
         day_start = current_day.floor('day')
@@ -144,26 +142,31 @@ for idx, (m_name, m_month) in enumerate(months_config):
         p_active = False
         v_active = False
         
-        # Kontrola, zda Petrův záznam zasahuje do tohoto dne
         for e in events_p_all:
             if e.begin < day_end and e.end > day_start:
                 p_active = True
                 break
         
-        # Kontrola, zda Veroničin záznam zasahuje do tohoto dne
         for e in events_v_all:
             if e.begin < day_end and e.end > day_start:
                 v_active = True
                 break
         
-        # Logika rozdělení váhy
+        # Logika rozdělení
         if p_active and v_active:
             p_w_days += day_weight * 0.5
             v_w_days += day_weight * 0.5
+            if is_weekend:
+                p_weekend_count += 0.5
+                v_weekend_count += 0.5
         elif p_active:
             p_w_days += day_weight
+            if is_weekend:
+                p_weekend_count += 1.0
         elif v_active:
             v_w_days += day_weight
+            if is_weekend:
+                v_weekend_count += 1.0
             
         current_day = current_day.shift(days=1)
 
@@ -171,26 +174,28 @@ for idx, (m_name, m_month) in enumerate(months_config):
     total_v += v_w_days
     results.append({
         "Měsíc": m_name, 
-        "Petr": round(p_w_days, 2), 
-        "Veronika": round(v_w_days, 2)
+        "Petr (body)": round(p_w_days, 2), 
+        "Veronika (body)": round(v_w_days, 2),
+        "Petr (víkendy)": round(p_weekend_count, 1),
+        "Veronika (víkendy)": round(v_weekend_count, 1)
     })
     progress_bar.progress((idx + 1) / total_steps)
 
 progress_bar.empty()
 
-# --- VÝSTUP ---
+# --- VÝSTUP (UPRAVENÝ) ---
 st.divider()
 st.subheader(f"Výsledky pro rok {year_select}")
 
-# Tabulka s výsledky
 st.dataframe(
     results, 
     use_container_width=True,
     column_config={
-        "Petr": st.column_config.NumberColumn(format="%.2f"),
-        "Veronika": st.column_config.NumberColumn(format="%.2f"),
-    }
-)
+        "Petr (body)": st.column_config.NumberColumn(format="%.2f"),
+        "Veronika (body)": st.column_config.NumberColumn(format="%.2f"),
+        "Petr (víkendy)": st.column_config.NumberColumn(format="%.1f d"),
+        "Veronika (víkendy)": st.column_config.NumberColumn(format="%.1f d"),
+    })
 
 # Celkové metriky
 col_p, col_v = st.columns(2)
@@ -198,5 +203,6 @@ col_p.metric("Celkem Petr", f"{total_p:.2f}")
 col_v.metric("Celkem Veronika", f"{total_v:.2f}")
 
 st.info("💡 Pokud jsou oba rodiče v kalendáři ve stejný den, váha dne se dělí 50/50.")
+
 
 
