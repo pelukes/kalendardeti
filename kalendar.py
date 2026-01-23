@@ -4,11 +4,12 @@ import re
 import unicodedata
 import requests
 from ics import Calendar
+import pandas as pd # <-- Nový import pro grafy a stylování
 
 # --- KONFIGURACE STRÁNKY ---
-st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide")
+st.set_page_config(page_title="Děti (Online Google Kalendář)", page_icon="👨‍👩‍👦‍👦", layout="wide")
 
-st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
+st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek: Hlídací Dashboard")
 
 # --- NASTAVENÍ KOEFICIENTŮ (NAPEVNO) ---
 WEIGHT_WEEKEND = 1.5
@@ -23,41 +24,42 @@ except Exception:
 
 # --- SIDEBAR (NASTAVENÍ) ---
 with st.sidebar:
-    st.header("Nastavení")
+    st.header("⚙️ Nastavení")
     
-    if st.button("🔄 Obnovit data z kalendáře"):
+    if st.button("🔄 Obnovit data z kalendáře", use_container_width=True):
         st.cache_data.clear()
 
     st.divider()
     
-    year_select = st.number_input("Rok", value=2026, step=1)
+    year_select = st.number_input("📅 Rok", value=2026, step=1)
     
     st.divider()
     
-    st.write("**Výběr měsíců:**")
-    all_months = {
-        "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
-        "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
-        "Září": 9, "Říjen": 10, "Listopad": 11, "Prosinec": 12
-    }
+    # Skrytí výběru měsíců do "expanderu" pro čistší sidebar
+    with st.expander("📆 Výběr měsíců", expanded=True):
+        all_months = {
+            "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
+            "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
+            "Září": 9, "Říjen": 10, "Listopad": 11, "Prosinec": 12
+        }
 
-    c_all, c_none = st.columns(2)
-    if c_all.button("Vybrat vše"):
-        for m in all_months.keys():
-            st.session_state[f"cb_{m}"] = True
-    if c_none.button("Zrušit vše"):
-        for m in all_months.keys():
-            st.session_state[f"cb_{m}"] = False
+        c_all, c_none = st.columns(2)
+        if c_all.button("Vybrat vše"):
+            for m in all_months.keys():
+                st.session_state[f"cb_{m}"] = True
+        if c_none.button("Zrušit vše"):
+            for m in all_months.keys():
+                st.session_state[f"cb_{m}"] = False
 
-    selected_month_names = []
-    cols = st.columns(3)
-    for i, month_name in enumerate(all_months.keys()):
-        with cols[i % 3]:
-            if f"cb_{month_name}" not in st.session_state:
-                st.session_state[f"cb_{month_name}"] = True
-            
-            if st.checkbox(month_name, key=f"cb_{month_name}"):
-                selected_month_names.append(month_name)
+        selected_month_names = []
+        cols = st.columns(2) # Změněno na 2 sloupce pro lepší čitelnost
+        for i, month_name in enumerate(all_months.keys()):
+            with cols[i % 2]:
+                if f"cb_{month_name}" not in st.session_state:
+                    st.session_state[f"cb_{month_name}"] = True
+                
+                if st.checkbox(month_name, key=f"cb_{month_name}"):
+                    selected_month_names.append(month_name)
 
     months_config = []
     for name, num in all_months.items():
@@ -84,10 +86,10 @@ def get_calendar_text(url):
 # --- HLAVNÍ LOGIKA ---
 
 if not months_config:
-    st.warning("Vyberte prosím alespoň jeden měsíc v levém panelu.")
+    st.warning("👈 Vyberte prosím alespoň jeden měsíc v levém panelu.")
     st.stop()
 
-with st.spinner('Stahuji aktuální kalendář z Google...'):
+with st.spinner('⏳ Stahuji aktuální kalendář z Google...'):
     ics_text = get_calendar_text(CALENDAR_URL)
 
 if ics_text is None:
@@ -100,7 +102,7 @@ except Exception as e:
     st.error(f"Chyba při parsování kalendáře: {e}")
     st.stop()
 
-# Filtrace událostí (P vs V) pomocí regulárních výrazů
+# Filtrace událostí (P vs V)
 pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
 pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
 
@@ -114,14 +116,14 @@ for event in c.events:
     elif pattern_v.search(clean):
         events_v_all.append(event)
 
-# Výpočet po měsících a dnech
+# Výpočet
 results = []
 total_p_weight = 0.0
 total_v_weight = 0.0
 total_p_weekends = 0.0
 total_v_weekends = 0.0
 
-progress_bar = st.progress(0)
+progress_bar = st.progress(0, text="Zpracovávám kalendář...")
 total_steps = len(months_config)
 
 for idx, (m_name, m_month) in enumerate(months_config):
@@ -139,7 +141,6 @@ for idx, (m_name, m_month) in enumerate(months_config):
         day_end = current_day.ceil('day')
         
         is_weekend = current_day.weekday() >= 5
-        # Použití pevných konstant
         day_weight = WEIGHT_WEEKEND if is_weekend else WEIGHT_WEEKDAY
         
         p_active = False
@@ -155,7 +156,7 @@ for idx, (m_name, m_month) in enumerate(months_config):
                 v_active = True
                 break
         
-        # Logika rozdělení váhy a víkendů
+        # Logika
         if p_active and v_active:
             p_w_sum += day_weight * 0.5
             v_w_sum += day_weight * 0.5
@@ -185,30 +186,60 @@ for idx, (m_name, m_month) in enumerate(months_config):
         "Petr (víkendy)": round(p_we_count, 1),
         "Veronika (víkendy)": round(v_we_count, 1)
     })
-    progress_bar.progress((idx + 1) / total_steps)
+    progress_bar.progress((idx + 1) / total_steps, text=f"Zpracován měsíc: {m_name}")
 
 progress_bar.empty()
 
-# --- VÝSTUP ---
-st.divider()
-st.subheader(f"Přehled pro rok {year_select}")
+# Převedení výsledků do Pandas DataFrame pro lepší vizualizace
+df = pd.DataFrame(results)
 
-# Tabulka s výsledky
+# --- VÝSTUP (Vizuálně upravený) ---
+
+# 1. Celkové metriky (Dány nahoru pro okamžitý přehled)
+st.markdown(f"### 🏆 Celkový souhrn za rok {year_select}")
+
+# Výpočet rozdílu pro vizuální zobrazení, kdo "vede"
+diff_weight = total_p_weight - total_v_weight
+diff_weekend = total_p_weekends - total_v_weekends
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("🔵 Celkem: Petr", f"{total_p_weight:.1f}", delta=f"{diff_weight:.1f} vs Ver." if diff_weight != 0 else None, delta_color="normal")
+with col2:
+    st.metric("🟣 Celkem: Veronika", f"{total_v_weight:.1f}", delta=f"{-diff_weight:.1f} vs Petr" if diff_weight != 0 else None, delta_color="normal")
+with col3:
+    st.metric("🏕️ Víkendy: Petr", f"{total_p_weekends:.1f} d", delta=f"{diff_weekend:.1f} d vs Ver." if diff_weekend != 0 else None)
+with col4:
+    st.metric("🏕️ Víkendy: Veronika", f"{total_v_weekends:.1f} d", delta=f"{-diff_weekend:.1f} d vs Petr" if diff_weekend != 0 else None)
+
+st.divider()
+
+# 2. Grafy v záložkách (Tabs)
+tab1, tab2 = st.tabs(["📊 Celkové zatížení (vč. koeficientů)", "🏕️ Čisté víkendy"])
+
+with tab1:
+    st.bar_chart(df.set_index("Měsíc")[["Petr", "Veronika"]], color=["#1E88E5", "#D81B60"]) # Modrá vs Růžovo-červená
+
+with tab2:
+    st.bar_chart(df.set_index("Měsíc")[["Petr (víkendy)", "Veronika (víkendy)"]], color=["#1E88E5", "#D81B60"])
+
+st.divider()
+
+# 3. Vylepšená tabulka
+st.markdown("### 📋 Detailní rozpis po měsících")
+
+# Stylování DataFrame (Teplotní mapa na pozadí buněk pro rychlou vizuální orientaci)
+styled_df = df.style.background_gradient(subset=["Petr", "Veronika"], cmap="Blues").format(precision=1)
+
 st.dataframe(
-    results, 
+    styled_df, 
     use_container_width=True,
+    height=400,
     column_config={
-        "Petr": st.column_config.NumberColumn("Petr", format="%.2f"),
-        "Veronika": st.column_config.NumberColumn("Veronika", format="%.2f"),
-        "Petr (víkendy)": st.column_config.NumberColumn("Petr (víkendy)", format="%.1f d"),
-        "Veronika (víkendy)": st.column_config.NumberColumn("Veronika (víkendy)", format="%.1f d"),
+        "Měsíc": st.column_config.TextColumn("Měsíc", width="medium"),
+        "Petr": st.column_config.NumberColumn("Petr (body)", format="%.1f"),
+        "Veronika": st.column_config.NumberColumn("Veronika (body)", format="%.1f"),
+        "Petr (víkendy)": st.column_config.NumberColumn("Petr (víkendy)", format="%.1f dnů"),
+        "Veronika (víkendy)": st.column_config.NumberColumn("Veronika (víkendy)", format="%.1f dnů"),
     }
 )
-
-# Celkové metriky
-st.markdown("### Celkové souhrny")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Petr", f"{total_p_weight:.2f}")
-col2.metric("Veronika", f"{total_v_weight:.2f}")
-col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
-col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
