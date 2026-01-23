@@ -2,3 +2,4 @@ streamlit
 ics
 arrow
 requests
+matplotlib
