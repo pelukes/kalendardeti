@@ -6,58 +6,9 @@ import requests
 from ics import Calendar
 
 # --- KONFIGURACE STRÁNKY ---
-st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide")
 
-# --- VIZUÁLNÍ STYL (VLASTNÍ CSS) ---
-st.markdown("""
-<style>
-/* Hlavní pozadí aplikace - veselý pastelový gradient */
-.stApp {
-    background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
-    background-attachment: fixed;
-}
-
-/* Poloprůhledný boční panel (glass effect) */
-[data-testid="stSidebar"] {
-    background-color: rgba(255, 255, 255, 0.6) !important;
-    backdrop-filter: blur(15px);
-}
-
-/* Stylování bloků s metrikami (aby vypadaly jako karty) */
-[data-testid="stMetric"] {
-    background-color: rgba(255, 255, 255, 0.85);
-    padding: 15px 20px;
-    border-radius: 15px;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    transition: transform 0.2s ease-in-out;
-}
-
-[data-testid="stMetric"]:hover {
-    transform: translateY(-3px);
-}
-
-/* Úprava barvy a fontu nadpisů */
-h1, h2, h3 {
-    color: #1E3A8A !important;
-    text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
-}
-
-/* Bílý podklad pro tabulku, aby byla lépe čitelná */
-[data-testid="stDataFrame"] {
-    background-color: rgba(255, 255, 255, 0.9);
-    border-radius: 15px;
-    padding: 15px;
-    box-shadow: 0 8px 16px rgba(0,0,0,0.05);
-}
-
-/* Skrytí horního panelu Streamlitu pro čistší vzhled */
-header {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
-
-st.title("👨‍👩‍👦‍👦 Jáchymek & Vilémek 🎈")
-st.markdown("*Statistika péče, školy a lékařů podle kalendáře.*")
+st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
 
 # --- NASTAVENÍ KOEFICIENTŮ (NAPEVNO) ---
 WEIGHT_WEEKEND = 1.5
@@ -72,18 +23,18 @@ except Exception:
 
 # --- SIDEBAR (NASTAVENÍ) ---
 with st.sidebar:
-    st.header("⚙️ Nastavení")
+    st.header("Nastavení")
     
-    if st.button("🔄 Obnovit data z kalendáře", use_container_width=True):
+    if st.button("🔄 Obnovit data z kalendáře"):
         st.cache_data.clear()
 
     st.divider()
     
-    year_select = st.number_input("📅 Rok", value=2026, step=1)
+    year_select = st.number_input("Rok", value=2026, step=1)
     
     st.divider()
     
-    st.write("**🗓️ Výběr měsíců:**")
+    st.write("**Výběr měsíců:**")
     all_months = {
         "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
         "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
@@ -133,10 +84,10 @@ def get_calendar_text(url):
 # --- HLAVNÍ LOGIKA ---
 
 if not months_config:
-    st.warning("⚠️ Vyberte prosím alespoň jeden měsíc v levém panelu.")
+    st.warning("Vyberte prosím alespoň jeden měsíc v levém panelu.")
     st.stop()
 
-with st.spinner('☁️ Stahuji aktuální kalendář z Google...'):
+with st.spinner('Stahuji aktuální kalendář z Google...'):
     ics_text = get_calendar_text(CALENDAR_URL)
 
 if ics_text is None:
@@ -153,6 +104,7 @@ except Exception as e:
 pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
 pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
 
+# Nové vzory pro lékaře a školu (pokrývá varianty jako "p. u lekare", "p u doktora", "p. skola" atd.)
 pattern_p_lekar = re.compile(r"\bp(etr)?\.?\s*(u\s+)?(lekar|doktor|zubar)")
 pattern_v_lekar = re.compile(r"\bv(eronika|erca)?\.?\s*(u\s+)?(lekar|doktor|zubar)")
 pattern_p_skola = re.compile(r"\bp(etr)?\.?\s*(skol|vyuka)")
@@ -168,9 +120,13 @@ events_v_skola_all = []
 for event in c.events:
     clean = normalize_text(event.name)
     
-    if pattern_p.search(clean): events_p_all.append(event)
-    elif pattern_v.search(clean): events_v_all.append(event)
+    # Rozdělení dětí
+    if pattern_p.search(clean):
+        events_p_all.append(event)
+    elif pattern_v.search(clean):
+        events_v_all.append(event)
         
+    # Nezávislé vyhledávání lékaře a školy (bez elif, aby se nezablokovalo při nečekaných kombinacích)
     if pattern_p_lekar.search(clean): events_p_lekar_all.append(event)
     if pattern_v_lekar.search(clean): events_v_lekar_all.append(event)
     if pattern_p_skola.search(clean): events_p_skola_all.append(event)
@@ -183,6 +139,7 @@ total_v_weight = 0.0
 total_p_weekends = 0.0
 total_v_weekends = 0.0
 
+# Počítadla pro nové statistiky
 total_p_lekar = 0
 total_v_lekar = 0
 total_p_skola = 0
@@ -195,6 +152,7 @@ for idx, (m_name, m_month) in enumerate(months_config):
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
+    # Přičtení počtu událostí pro daný měsíc (vyhodnocuje se jen podle začátku události)
     total_p_lekar += sum(1 for e in events_p_lekar_all if m_start <= e.begin < m_end)
     total_v_lekar += sum(1 for e in events_v_lekar_all if m_start <= e.begin < m_end)
     total_p_skola += sum(1 for e in events_p_skola_all if m_start <= e.begin < m_end)
@@ -261,7 +219,7 @@ progress_bar.empty()
 
 # --- VÝSTUP ---
 st.divider()
-st.subheader(f"📊 Přehled pro rok {year_select}")
+st.subheader(f"Přehled pro rok {year_select}")
 
 # Tabulka s výsledky
 st.dataframe(
@@ -275,20 +233,16 @@ st.dataframe(
     }
 )
 
-st.divider()
-
 # Celkové metriky - Péče o děti
-st.markdown("### 🧸 Celkové souhrny – Péče o děti")
+st.markdown("### Celkové souhrny – Péče o děti")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Petr", f"{total_p_weight:.2f}")
 col2.metric("Veronika", f"{total_v_weight:.2f}")
-col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} dnů")
-col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} dnů")
-
-st.write("") # Odřádkování pro lepší rozestupy
+col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
+col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
 
 # Celkové metriky - Lékař a Škola
-st.markdown("### 🩺 Počet událostí (Lékař / Škola)")
+st.markdown("### Počet událostí (Lékař / Škola)")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Lékař Petr", f"{total_p_lekar}×")
 c2.metric("Lékař Veronika", f"{total_v_lekar}×")
