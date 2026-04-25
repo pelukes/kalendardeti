@@ -104,15 +104,33 @@ except Exception as e:
 pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
 pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
 
+# Nové vzory pro lékaře a školu (pokrývá varianty jako "p. u lekare", "p u doktora", "p. skola" atd.)
+pattern_p_lekar = re.compile(r"\bp(etr)?\.?\s*(u\s+)?(lekar|doktor|zubar)")
+pattern_v_lekar = re.compile(r"\bv(eronika|erca)?\.?\s*(u\s+)?(lekar|doktor|zubar)")
+pattern_p_skola = re.compile(r"\bp(etr)?\.?\s*(skol|vyuka)")
+pattern_v_skola = re.compile(r"\bv(eronika|erca)?\.?\s*(skol|vyuka)")
+
 events_p_all = []
 events_v_all = []
+events_p_lekar_all = []
+events_v_lekar_all = []
+events_p_skola_all = []
+events_v_skola_all = []
 
 for event in c.events:
     clean = normalize_text(event.name)
+    
+    # Rozdělení dětí
     if pattern_p.search(clean):
         events_p_all.append(event)
     elif pattern_v.search(clean):
         events_v_all.append(event)
+        
+    # Nezávislé vyhledávání lékaře a školy (bez elif, aby se nezablokovalo při nečekaných kombinacích)
+    if pattern_p_lekar.search(clean): events_p_lekar_all.append(event)
+    if pattern_v_lekar.search(clean): events_v_lekar_all.append(event)
+    if pattern_p_skola.search(clean): events_p_skola_all.append(event)
+    if pattern_v_skola.search(clean): events_v_skola_all.append(event)
 
 # Výpočet po měsících a dnech
 results = []
@@ -121,12 +139,24 @@ total_v_weight = 0.0
 total_p_weekends = 0.0
 total_v_weekends = 0.0
 
+# Počítadla pro nové statistiky
+total_p_lekar = 0
+total_v_lekar = 0
+total_p_skola = 0
+total_v_skola = 0
+
 progress_bar = st.progress(0)
 total_steps = len(months_config)
 
 for idx, (m_name, m_month) in enumerate(months_config):
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
+
+    # Přičtení počtu událostí pro daný měsíc (vyhodnocuje se jen podle začátku události)
+    total_p_lekar += sum(1 for e in events_p_lekar_all if m_start <= e.begin < m_end)
+    total_v_lekar += sum(1 for e in events_v_lekar_all if m_start <= e.begin < m_end)
+    total_p_skola += sum(1 for e in events_p_skola_all if m_start <= e.begin < m_end)
+    total_v_skola += sum(1 for e in events_v_skola_all if m_start <= e.begin < m_end)
 
     p_w_sum = 0.0
     v_w_sum = 0.0
@@ -139,7 +169,6 @@ for idx, (m_name, m_month) in enumerate(months_config):
         day_end = current_day.ceil('day')
         
         is_weekend = current_day.weekday() >= 5
-        # Použití pevných konstant
         day_weight = WEIGHT_WEEKEND if is_weekend else WEIGHT_WEEKDAY
         
         p_active = False
@@ -155,7 +184,6 @@ for idx, (m_name, m_month) in enumerate(months_config):
                 v_active = True
                 break
         
-        # Logika rozdělení váhy a víkendů
         if p_active and v_active:
             p_w_sum += day_weight * 0.5
             v_w_sum += day_weight * 0.5
@@ -205,10 +233,18 @@ st.dataframe(
     }
 )
 
-# Celkové metriky
-st.markdown("### Celkové souhrny")
+# Celkové metriky - Péče o děti
+st.markdown("### Celkové souhrny – Péče o děti")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Petr", f"{total_p_weight:.2f}")
 col2.metric("Veronika", f"{total_v_weight:.2f}")
 col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
 col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
+
+# Celkové metriky - Lékař a Škola
+st.markdown("### Počet událostí (Lékař / Škola)")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Lékař Petr", f"{total_p_lekar}×")
+c2.metric("Lékař Veronika", f"{total_v_lekar}×")
+c3.metric("Škola Petr", f"{total_p_skola}×")
+c4.metric("Škola Veronika", f"{total_v_skola}×")
