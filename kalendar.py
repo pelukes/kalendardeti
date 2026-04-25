@@ -234,7 +234,7 @@ st.dataframe(
 )
 
 # Celkové metriky - Péče o děti
-st.markdown("### Celkové souhrny – Péče o děti")
+st.markdown("### Celkové souhrny")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Petr", f"{total_p_weight:.2f}")
 col2.metric("Veronika", f"{total_v_weight:.2f}")
@@ -242,7 +242,7 @@ col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
 col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
 
 # Celkové metriky - Lékař a Škola
-st.markdown("### Počet událostí (Lékař / Škola)")
+st.markdown("### Lékaři a škola")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Lékař Petr", f"{total_p_lekar}×")
 c2.metric("Lékař Veronika", f"{total_v_lekar}×")
