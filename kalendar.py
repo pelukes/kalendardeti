@@ -10,59 +10,40 @@ st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide")
 
 st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
 
-# --- NASTAVENÍ KOEFICIENTŮ (NAPEVNO) ---
+# --- NASTAVENÍ KOEFICIENTŮ ---
 WEIGHT_WEEKEND = 1.5
 WEIGHT_WEEKDAY = 1.0
 
-# --- NAČTENÍ URL Z TAJNÝCH PROMĚNNÝCH (SECRETS) ---
+# --- NAČTENÍ URL Z TAJNÝCH PROMĚNNÝCH ---
 try:
     CALENDAR_URL = st.secrets["CALENDAR_URL"]
 except Exception:
-    st.error("Nenalezen klíč CALENDAR_URL v Secrets. Prosím nastavte jej v administraci Streamlit Cloud.")
+    st.error("Nenalezen klíč CALENDAR_URL v Secrets.")
     st.stop()
 
-# --- SIDEBAR (NASTAVENÍ) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("Nastavení")
-    
     if st.button("🔄 Obnovit data z kalendáře"):
         st.cache_data.clear()
-
     st.divider()
-    
     year_select = st.number_input("Rok", value=2026, step=1)
-    
     st.divider()
     
-    st.write("**Výběr měsíců:**")
     all_months = {
         "Leden": 1, "Únor": 2, "Březen": 3, "Duben": 4, 
         "Květen": 5, "Červen": 6, "Červenec": 7, "Srpen": 8,
         "Září": 9, "Říjen": 10, "Listopad": 11, "Prosinec": 12
     }
-
-    c_all, c_none = st.columns(2)
-    if c_all.button("Vybrat vše"):
-        for m in all_months.keys():
-            st.session_state[f"cb_{m}"] = True
-    if c_none.button("Zrušit vše"):
-        for m in all_months.keys():
-            st.session_state[f"cb_{m}"] = False
-
+    
     selected_month_names = []
-    cols = st.columns(3)
-    for i, month_name in enumerate(all_months.keys()):
-        with cols[i % 3]:
-            if f"cb_{month_name}" not in st.session_state:
-                st.session_state[f"cb_{month_name}"] = True
-            
-            if st.checkbox(month_name, key=f"cb_{month_name}"):
-                selected_month_names.append(month_name)
+    for month_name in all_months.keys():
+        if f"cb_{month_name}" not in st.session_state:
+            st.session_state[f"cb_{month_name}"] = True
+        if st.checkbox(month_name, key=f"cb_{month_name}"):
+            selected_month_names.append(month_name)
 
-    months_config = []
-    for name, num in all_months.items():
-        if name in selected_month_names:
-            months_config.append((name, num))
+    months_config = [(name, num) for name, num in all_months.items() if name in selected_month_names]
 
 # --- POMOCNÉ FUNKCE ---
 
@@ -71,6 +52,11 @@ def normalize_text(text):
     normalized = unicodedata.normalize('NFD', text)
     result = "".join([c for c in normalized if unicodedata.category(c) != 'Mn'])
     return result.lower()
+
+def extract_count(text):
+    """Hledá vzor typu '3x' nebo '3 x' v názvu události."""
+    match = re.search(r"(\d+)\s*x\b", text, re.IGNORECASE)
+    return int(match.group(1)) if match else 1
 
 @st.cache_data(ttl=900)
 def get_calendar_text(url):
@@ -84,167 +70,94 @@ def get_calendar_text(url):
 # --- HLAVNÍ LOGIKA ---
 
 if not months_config:
-    st.warning("Vyberte prosím alespoň jeden měsíc v levém panelu.")
+    st.warning("Vyberte prosím alespoň jeden měsíc.")
     st.stop()
 
-with st.spinner('Stahuji aktuální kalendář z Google...'):
-    ics_text = get_calendar_text(CALENDAR_URL)
-
-if ics_text is None:
-    st.error("Nepodařilo se stáhnout kalendář. Zkontrolujte URL adresu v Secrets.")
+ics_text = get_calendar_text(CALENDAR_URL)
+if not ics_text:
+    st.error("Nepodařilo se stáhnout kalendář.")
     st.stop()
 
-try:
-    c = Calendar(ics_text)
-except Exception as e:
-    st.error(f"Chyba při parsování kalendáře: {e}")
-    st.stop()
+c = Calendar(ics_text)
 
-# Filtrace událostí (P vs V) pomocí regulárních výrazů
+# Regexy pro třídění
 pattern_p = re.compile(r"\bp\.?\s+ma\s+deti")
 pattern_v = re.compile(r"\bv\.?\s+ma\s+deti")
-
-# Nové vzory pro lékaře a školu (pokrývá varianty jako "p. u lekare", "p u doktora", "p. skola" atd.)
 pattern_p_lekar = re.compile(r"\bp(etr)?\.?\s*(u\s+)?(lekar|doktor|zubar)")
 pattern_v_lekar = re.compile(r"\bv(eronika|erca)?\.?\s*(u\s+)?(lekar|doktor|zubar)")
 pattern_p_skola = re.compile(r"\bp(etr)?\.?\s*(skol|vyuka)")
 pattern_v_skola = re.compile(r"\bv(eronika|erca)?\.?\s*(skol|vyuka)")
 
-events_p_all = []
-events_v_all = []
-events_p_lekar_all = []
-events_v_lekar_all = []
-events_p_skola_all = []
-events_v_skola_all = []
+events_p, events_v = [], []
+events_p_lekar, events_v_lekar = [], []
+events_p_skola, events_v_skola = [], []
 
 for event in c.events:
     clean = normalize_text(event.name)
+    if pattern_p.search(clean): events_p.append(event)
+    elif pattern_v.search(clean): events_v.append(event)
     
-    # Rozdělení dětí
-    if pattern_p.search(clean):
-        events_p_all.append(event)
-    elif pattern_v.search(clean):
-        events_v_all.append(event)
-        
-    # Nezávislé vyhledávání lékaře a školy (bez elif, aby se nezablokovalo při nečekaných kombinacích)
-    if pattern_p_lekar.search(clean): events_p_lekar_all.append(event)
-    if pattern_v_lekar.search(clean): events_v_lekar_all.append(event)
-    if pattern_p_skola.search(clean): events_p_skola_all.append(event)
-    if pattern_v_skola.search(clean): events_v_skola_all.append(event)
+    if pattern_p_lekar.search(clean): events_p_lekar.append(event)
+    if pattern_v_lekar.search(clean): events_v_lekar.append(event)
+    if pattern_p_skola.search(clean): events_p_skola.append(event)
+    if pattern_v_skola.search(clean): events_v_skola.append(event)
 
-# Výpočet po měsících a dnech
 results = []
-total_p_weight = 0.0
-total_v_weight = 0.0
-total_p_weekends = 0.0
-total_v_weekends = 0.0
+total_p_weight, total_v_weight = 0.0, 0.0
+total_p_weekends, total_v_weekends = 0.0, 0.0
+t_p_lekar, t_v_lekar, t_p_skola, t_v_skola = 0, 0, 0, 0
 
-# Počítadla pro nové statistiky
-total_p_lekar = 0
-total_v_lekar = 0
-total_p_skola = 0
-total_v_skola = 0
-
-progress_bar = st.progress(0)
-total_steps = len(months_config)
-
-for idx, (m_name, m_month) in enumerate(months_config):
+for m_name, m_month in months_config:
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
-    # Přičtení počtu událostí pro daný měsíc (vyhodnocuje se jen podle začátku události)
-    total_p_lekar += sum(1 for e in events_p_lekar_all if m_start <= e.begin < m_end)
-    total_v_lekar += sum(1 for e in events_v_lekar_all if m_start <= e.begin < m_end)
-    total_p_skola += sum(1 for e in events_p_skola_all if m_start <= e.begin < m_end)
-    total_v_skola += sum(1 for e in events_v_skola_all if m_start <= e.begin < m_end)
+    # Statistika lékař/škola s násobičem
+    t_p_lekar += sum(extract_count(e.name) for e in events_p_lekar if m_start <= e.begin < m_end)
+    t_v_lekar += sum(extract_count(e.name) for e in events_v_lekar if m_start <= e.begin < m_end)
+    t_p_skola += sum(extract_count(e.name) for e in events_p_skola if m_start <= e.begin < m_end)
+    t_v_skola += sum(extract_count(e.name) for e in events_v_skola if m_start <= e.begin < m_end)
 
-    p_w_sum = 0.0
-    v_w_sum = 0.0
-    p_we_count = 0.0
-    v_we_count = 0.0
+    # Výpočet péče o děti
+    p_w, v_w = 0.0, 0.0
+    p_we, v_we = 0.0, 0.0
+    curr = m_start
+    while curr < m_end:
+        is_we = curr.weekday() >= 5
+        weight = WEIGHT_WEEKEND if is_we else WEIGHT_WEEKDAY
+        d_end = curr.shift(days=1)
+        
+        p_act = any(e.begin < d_end and e.end > curr for e in events_p)
+        v_act = any(e.begin < d_end and e.end > curr for e in events_v)
+        
+        if p_act and v_act:
+            p_w += weight * 0.5; v_w += weight * 0.5
+            if is_we: p_we += 0.5; v_we += 0.5
+        elif p_act:
+            p_w += weight
+            if is_we: p_we += 1.0
+        elif v_act:
+            v_w += weight
+            if is_we: v_we += 1.0
+        curr = curr.shift(days=1)
 
-    current_day = m_start
-    while current_day < m_end:
-        day_start = current_day.floor('day')
-        day_end = current_day.ceil('day')
-        
-        is_weekend = current_day.weekday() >= 5
-        day_weight = WEIGHT_WEEKEND if is_weekend else WEIGHT_WEEKDAY
-        
-        p_active = False
-        v_active = False
-        
-        for e in events_p_all:
-            if e.begin < day_end and e.end > day_start:
-                p_active = True
-                break
-        
-        for e in events_v_all:
-            if e.begin < day_end and e.end > day_start:
-                v_active = True
-                break
-        
-        if p_active and v_active:
-            p_w_sum += day_weight * 0.5
-            v_w_sum += day_weight * 0.5
-            if is_weekend:
-                p_we_count += 0.5
-                v_we_count += 0.5
-        elif p_active:
-            p_w_sum += day_weight
-            if is_weekend:
-                p_we_count += 1.0
-        elif v_active:
-            v_w_sum += day_weight
-            if is_weekend:
-                v_we_count += 1.0
-            
-        current_day = current_day.shift(days=1)
-
-    total_p_weight += p_w_sum
-    total_v_weight += v_w_sum
-    total_p_weekends += p_we_count
-    total_v_weekends += v_we_count
-
-    results.append({
-        "Měsíc": m_name, 
-        "Petr": round(p_w_sum, 2), 
-        "Veronika": round(v_w_sum, 2),
-        "Petr (víkendy)": round(p_we_count, 1),
-        "Veronika (víkendy)": round(v_we_count, 1)
-    })
-    progress_bar.progress((idx + 1) / total_steps)
-
-progress_bar.empty()
+    total_p_weight += p_w; total_v_weight += v_w
+    total_p_weekends += p_we; total_v_weekends += v_we
+    results.append({"Měsíc": m_name, "Petr": round(p_w, 2), "Veronika": round(v_w, 2)})
 
 # --- VÝSTUP ---
-st.divider()
 st.subheader(f"Přehled pro rok {year_select}")
+st.dataframe(results, use_container_width=True)
 
-# Tabulka s výsledky
-st.dataframe(
-    results, 
-    use_container_width=True,
-    column_config={
-        "Petr": st.column_config.NumberColumn("Petr", format="%.2f"),
-        "Veronika": st.column_config.NumberColumn("Veronika", format="%.2f"),
-        "Petr (víkendy)": st.column_config.NumberColumn("Petr (víkendy)", format="%.1f d"),
-        "Veronika (víkendy)": st.column_config.NumberColumn("Veronika (víkendy)", format="%.1f d"),
-    }
-)
-
-# Celkové metriky - Péče o děti
 st.markdown("### Celkové souhrny")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Petr", f"{total_p_weight:.2f}")
-col2.metric("Veronika", f"{total_v_weight:.2f}")
-col3.metric("Víkendy Petr", f"{total_p_weekends:.1f} d")
-col4.metric("Víkendy Veronika", f"{total_v_weekends:.1f} d")
-
-# Celkové metriky - Lékař a Škola
-st.markdown("### Lékaři a škola")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Lékař Petr", f"{total_p_lekar}×")
-c2.metric("Lékař Veronika", f"{total_v_lekar}×")
-c3.metric("Škola Petr", f"{total_p_skola}×")
-c4.metric("Škola Veronika", f"{total_v_skola}×")
+c1.metric("Petr (celkem)", f"{total_p_weight:.2f}")
+c2.metric("Veronika (celkem)", f"{total_v_weight:.2f}")
+c3.metric("Víkendy Petr", f"{total_p_weekends:.1f}")
+c4.metric("Víkendy Veronika", f"{total_v_weekends:.1f}")
+
+st.markdown("### Lékaři a škola")
+l1, l2, s1, s2 = st.columns(4)
+l1.metric("Lékař Petr", f"{t_p_lekar}×")
+l2.metric("Lékař Veronika", f"{t_v_lekar}×")
+s1.metric("Škola Petr", f"{t_p_skola}×")
+s2.metric("Škola Veronika", f"{t_v_skola}×")
