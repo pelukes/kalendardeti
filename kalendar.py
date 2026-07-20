@@ -188,7 +188,7 @@ def color_diff(val):
     color = '#d4edda' if val > 0 else '#f8d7da' if val < 0 else '#fff3cd'
     return f'background-color: {color}; font-weight: bold'
 
-styled_df = df.style.applymap(color_diff, subset=['Rozdíl']).format({"Petr": "{:.2f}", "Veronika": "{:.2f}", "Rozdíl": "{:+.2f}"})
+styled_df = df.style.map(color_diff, subset=['Rozdíl']).format({"Petr": "{:.2f}", "Veronika": "{:.2f}", "Rozdíl": "{:+.2f}"})
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # 2. Grafy
