@@ -2,4 +2,6 @@ streamlit
 ics
 arrow
 requests
-matplotlib
+plotly
+pandas
+
