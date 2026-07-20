@@ -4,11 +4,14 @@ import re
 import unicodedata
 import requests
 from ics import Calendar
+import plotly.express as px
+import pandas as pd
 
 # --- KONFIGURACE STRÁNKY ---
 st.set_page_config(page_title="Děti (Online Google Kalendář)", layout="wide")
 
-st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek")
+st.title("👨‍👩‍👦‍👦 Jáchymek a Vilémek - Statistika péče")
+st.markdown("### 📊 Přehled rozdělení času a úkolů")
 
 # --- NASTAVENÍ KOEFICIENTŮ ---
 WEIGHT_WEEKEND = 1.5
@@ -18,14 +21,14 @@ WEIGHT_WEEKDAY = 1.0
 try:
     CALENDAR_URL = st.secrets["CALENDAR_URL"]
 except Exception:
-    st.error("Nenalezen klíč CALENDAR_URL v Secrets.")
-    st.stop()
+    CALENDAR_URL = None
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("Nastavení")
+    st.header("⚙️ Nastavení")
     if st.button("🔄 Obnovit data z kalendáře"):
         st.cache_data.clear()
+        st.rerun()
     st.divider()
     year_select = st.number_input("Rok", value=2026, step=1)
     st.divider()
@@ -61,7 +64,7 @@ def extract_count(text):
 @st.cache_data(ttl=900)
 def get_calendar_text(url):
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         return response.text
     except Exception:
@@ -70,13 +73,21 @@ def get_calendar_text(url):
 # --- HLAVNÍ LOGIKA ---
 
 if not months_config:
-    st.warning("Vyberte prosím alespoň jeden měsíc.")
+    st.warning("⚠️ Vyberte prosím alespoň jeden měsíc.")
     st.stop()
 
-ics_text = get_calendar_text(CALENDAR_URL)
+ics_text = None
+if CALENDAR_URL:
+    ics_text = get_calendar_text(CALENDAR_URL)
+
+# Fallback pro upload souboru
 if not ics_text:
-    st.error("Nepodařilo se stáhnout kalendář.")
-    st.stop()
+    st.info("📂 Kalendář nelze načíst automaticky. Nahrajte soubor .ics ručně pro pokračování.")
+    uploaded_file = st.file_uploader("Nahrajte soubor kalendáře (.ics)", type=["ics"])
+    if uploaded_file is not None:
+        ics_text = uploaded_file.read().decode("utf-8")
+    else:
+        st.stop()
 
 c = Calendar(ics_text)
 
@@ -107,15 +118,23 @@ total_p_weight, total_v_weight = 0.0, 0.0
 total_p_weekends, total_v_weekends = 0.0, 0.0
 t_p_lekar, t_v_lekar, t_p_skola, t_v_skola = 0, 0, 0, 0
 
+cumulative_p, cumulative_v = [], []
+months_labels = []
+
 for m_name, m_month in months_config:
     m_start = arrow.get(year_select, m_month, 1)
     m_end = m_start.shift(months=1)
 
     # Statistika lékař/škola s násobičem
-    t_p_lekar += sum(extract_count(e.name) for e in events_p_lekar if m_start <= e.begin < m_end)
-    t_v_lekar += sum(extract_count(e.name) for e in events_v_lekar if m_start <= e.begin < m_end)
-    t_p_skola += sum(extract_count(e.name) for e in events_p_skola if m_start <= e.begin < m_end)
-    t_v_skola += sum(extract_count(e.name) for e in events_v_skola if m_start <= e.begin < m_end)
+    p_lekar_count = sum(extract_count(e.name) for e in events_p_lekar if m_start <= e.begin < m_end)
+    v_lekar_count = sum(extract_count(e.name) for e in events_v_lekar if m_start <= e.begin < m_end)
+    p_skola_count = sum(extract_count(e.name) for e in events_p_skola if m_start <= e.begin < m_end)
+    v_skola_count = sum(extract_count(e.name) for e in events_v_skola if m_start <= e.begin < m_end)
+
+    t_p_lekar += p_lekar_count
+    t_v_lekar += v_lekar_count
+    t_p_skola += p_skola_count
+    t_v_skola += v_skola_count
 
     # Výpočet péče o děti
     p_w, v_w = 0.0, 0.0
@@ -142,22 +161,71 @@ for m_name, m_month in months_config:
 
     total_p_weight += p_w; total_v_weight += v_w
     total_p_weekends += p_we; total_v_weekends += v_we
-    results.append({"Měsíc": m_name, "Petr": round(p_w, 2), "Veronika": round(v_w, 2)})
+    
+    # Pro grafy
+    cumulative_p.append(total_p_weight)
+    cumulative_v.append(total_v_weight)
+    months_labels.append(m_name)
+    
+    results.append({
+        "Měsíc": m_name, 
+        "Petr": round(p_w, 2), 
+        "Veronika": round(v_w, 2),
+        "Rozdíl": round(p_w - v_w, 2),
+        "Lékař Petr": p_lekar_count,
+        "Lékař Veronika": v_lekar_count,
+        "Škola Petr": p_skola_count,
+        "Škola Veronika": v_skola_count
+    })
 
 # --- VÝSTUP ---
-st.subheader(f"Přehled pro rok {year_select}")
-st.dataframe(results, use_container_width=True)
 
-st.markdown("### Celkové souhrny")
+# 1. Hlavní tabulka s formátováním
+st.subheader(f"📅 Měsíční přehled ({year_select})")
+df = pd.DataFrame(results)
+
+def color_diff(val):
+    color = '#d4edda' if val > 0 else '#f8d7da' if val < 0 else '#fff3cd'
+    return f'background-color: {color}; font-weight: bold'
+
+styled_df = df.style.applymap(color_diff, subset=['Rozdíl']).format({"Petr": "{:.2f}", "Veronika": "{:.2f}", "Rozdíl": "{:+.2f}"})
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+# 2. Grafy
+col_chart1, col_chart2 = st.columns(2)
+
+with col_chart1:
+    st.markdown("### ⚖️ Kumulativní bilance")
+    chart_data = pd.DataFrame({
+        'Měsíc': months_labels,
+        'Petr': cumulative_p,
+        'Veronika': cumulative_v
+    })
+    fig_line = px.line(chart_data, x='Měsíc', y=['Petr', 'Veronika'], markers=True, title="Vývoj celkového skóre")
+    fig_line.update_traces(line=dict(width=3))
+    st.plotly_chart(fig_line, use_container_width=True)
+
+with col_chart2:
+    st.markdown("### 🏥 Lékaři a Školy (Celkem)")
+    chart_data_bar = pd.DataFrame({
+        'Kategorie': ['Lékař', 'Škola'],
+        'Petr': [t_p_lekar, t_p_skola],
+        'Veronika': [t_v_lekar, t_v_skola]
+    })
+    fig_bar = px.bar(chart_data_bar, x='Kategorie', y=['Petr', 'Veronika'], barmode='group', title="Počet návštěv")
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+# 3. Metriky
+st.markdown("### 📈 Celkové souhrny")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Petr (celkem)", f"{total_p_weight:.2f}")
-c2.metric("Veronika (celkem)", f"{total_v_weight:.2f}")
-c3.metric("Víkendy Petr", f"{total_p_weekends:.1f}")
-c4.metric("Víkendy Veronika", f"{total_v_weekends:.1f}")
 
-st.markdown("### Lékaři a škola")
+c1.metric(label="Petr (celkem)", value=f"{total_p_weight:.2f}", delta=f"{total_p_weight - total_v_weight:+.2f}")
+c2.metric(label="Veronika (celkem)", value=f"{total_v_weight:.2f}", delta=f"{total_v_weight - total_p_weight:+.2f}")
+c3.metric(label="Víkendy Petr", value=f"{total_p_weekends:.1f}")
+c4.metric(label="Víkendy Veronika", value=f"{total_v_weekends:.1f}")
+
 l1, l2, s1, s2 = st.columns(4)
-l1.metric("Lékař Petr", f"{t_p_lekar}×")
-l2.metric("Lékař Veronika", f"{t_v_lekar}×")
-s1.metric("Škola Petr", f"{t_p_skola}×")
-s2.metric("Škola Veronika", f"{t_v_skola}×")
+l1.metric("Lékař Petr", f"{t_p_lekar}×", delta_color="normal")
+l2.metric("Lékař Veronika", f"{t_v_lekar}×", delta_color="normal")
+s1.metric("Škola Petr", f"{t_p_skola}×", delta_color="normal")
+s2.metric("Škola Veronika", f"{t_v_skola}×", delta_color="normal")
